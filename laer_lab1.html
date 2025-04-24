@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Laser Diffraction Interactive Lab</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg: #f0f4f8;
+      --surface: #ffffff;
+      --text: #2e3a59;
+      --accent: #4a90e2;
+      --accent-hover: #357ab8;
+      --accent-light: #e6f0fc;
+      --grid: #cfd8dc;
+      --control-border: #b0bec5;
+      --font-family: 'Inter', sans-serif;
+    }
+   *{ box-sizing: border-box; }
+    body {
+      font-family: var(--font-family);
+      background: var(--bg);
+      color: var(--text);
+      margin: 0; padding: 20px;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    h1 { font-weight: 600; margin-bottom: 24px; }
+    .controls {
+      display: flex; flex-wrap: wrap; gap: 16px;
+      background: var(--surface); padding: 16px;
+      border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      margin-bottom: 24px;
+      width: 100%; max-width: 700px;
+    }
+    .control { display: flex; flex-direction: column; flex: 1; min-width: 140px; }
+    .control label { margin-bottom: 4px; font-size: 14px; font-weight: 500; }
+    .control input, .control select {
+      padding: 8px; font-size: 14px;
+      border: 1px solid var(--control-border);
+      border-radius: 6px; background: #fff;
+      outline: none; transition: border-color .2s;
+    }
+    .control input:focus, .control select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-light);
+    }
+    #setup {
+      padding: 12px 24px;
+      font-size: 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      width: 100%;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      transition: background .2s, transform .1s;
+      align-self: flex-end;
+    }
+    #setup:hover {
+      background: var(--accent-hover);
+      transform: translateY(-2px);
+    }
+    #setup:active {
+      transform: translateY(0);
+    }
+    .canvas-container { position: relative; display: inline-block; }
+    #plot {
+      width: 600px; height: 600px;
+      background: var(--surface);
+      border: 1px solid var(--control-border);
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      cursor: crosshair;
+      margin-bottom: 24px;
+      touch-action: none;
+    }
+    #tooltip {
+      position: absolute; display: none;
+      background: rgba(0,0,0,0.7); color: #fff;
+      padding: 4px 8px; border-radius: 4px;
+      font-size: 12px; pointer-events: none;
+      white-space: nowrap;
+    }
+    #inputsTable { width: 100%; max-width: 700px; margin-bottom: 16px; }
+    table {
+      width: 100%; border-collapse: collapse;
+      background: var(--surface); border-radius: 6px;
+      overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    }
+    th, td { padding: 10px 14px; text-align: center; font-size: 14px; }
+    th { background: var(--accent-light); font-weight: 600; }
+    tr:nth-child(even) { background: #f8fbfd; }
+    .radius-input {
+      width: 100px; padding: 4px; font-size: 14px;
+      border: 1px solid var(--control-border); border-radius: 4px;
+    }
+    #meanDisplay, #sizeDisplay {
+      font-weight: 600; margin-top: 8px; text-align: center;
+    }
+    #screenshotBtn {
+      padding: 12px 20px; font-size: 14px; font-weight: 600;
+      color: #fff; background: var(--accent);
+      border: none; border-radius: 6px;
+      cursor: pointer; margin-top: 12px;
+      transition: background .2s;
+    }
+    #screenshotBtn:hover { background: var(--accent-hover); }
+  </style>
+</head>
+<body>
+  <h1>Laser Diffraction Interactive Lab</h1>
+  <div class="controls">
+    <div class="control">
+      <label for="wavelength">Wavelength λ (m):</label>
+      <input type="number" id="wavelength" value="633e-9" step="1e-9"/>
+    </div>
+    <div class="control">
+      <label for="distance">Distance D (m):</label>
+      <input type="number" id="distance" value="1" step="0.1"/>
+    </div>
+    <div class="control">
+      <label for="material">Material:</label>
+      <select id="material">
+        <option value="30e-6">Lycopodium (~30 µm)</option>
+        <option value="5e-6">Polystyrene (~5 µm)</option>
+        <option value="2e-6">Silica (~2 µm)</option>
+      </select>
+    </div>
+    <div class="control">
+      <label for="orders"># of Fringes (N):</label>
+      <input type="number" id="orders" value="5" min="1"/>
+    </div>
+    <div class="control">
+      <button id="setup">Draw Pattern &amp; Setup Table</button>
+    </div>
+  </div>
+  <div class="canvas-container">
+    <canvas id="plot"></canvas>
+    <div id="tooltip"></div>
+  </div>
+  <div id="inputsTable"></div>
+  <div id="meanDisplay"></div>
+  <div id="sizeDisplay"></div>
+  <button id="screenshotBtn">Download Screenshot</button>
+
+  <script>
+    const canvas=document.getElementById('plot');
+    const ctx=canvas.getContext('2d');
+    canvas.width=600; canvas.height=600;
+    let scale=1, offsetX=0, offsetY=0;
+    let isDragging=false, dragStart={ x: 0, y: 0 };
+    let lastMean=0, currentPPM=1, currentCX=canvas.width/2, currentCY=canvas.height/2;
+
+    const λInput=document.getElementById('wavelength');
+    const DInput=document.getElementById('distance');
+    const matInput=document.getElementById('material');
+    const ordersInput=document.getElementById('orders');
+    const setupBtn=document.getElementById('setup');
+    const inputsTableDiv=document.getElementById('inputsTable');
+    const meanDisplay=document.getElementById('meanDisplay');
+    const sizeDisplay=document.getElementById('sizeDisplay');
+    const screenshotBtn=document.getElementById('screenshotBtn');
+    const tooltip=document.getElementById('tooltip');
+
+    canvas.addEventListener('wheel', e => { e.preventDefault(); scale=Math.min(Math.max(scale-e.deltaY*0.001, 0.2), 10); drawPattern(); });
+    canvas.addEventListener('mousedown', e => { isDragging=true; dragStart.x=e.clientX-offsetX; dragStart.y=e.clientY-offsetY; canvas.style.cursor='grabbing'; });
+    canvas.addEventListener('mousemove', e => {
+      const rect=canvas.getBoundingClientRect();
+      const mx=e.clientX-rect.left;
+      const my=e.clientY-rect.top;
+      if (isDragging) {
+        offsetX=e.clientX-dragStart.x; offsetY=e.clientY-dragStart.y; drawPattern();
+      } else {
+        const xVal=((mx-currentCX)/currentPPM).toFixed(4);
+        const yVal=((currentCY-my)/currentPPM).toFixed(4);
+        tooltip.textContent=`(${xVal}, ${yVal}) m`;
+        tooltip.style.left=`${mx+15}px`;
+        tooltip.style.top=`${my+15}px`;
+        tooltip.style.display='block';
+      }
+    });
+    canvas.addEventListener('mouseup', () => { isDragging=false; canvas.style.cursor='crosshair'; });
+    canvas.addEventListener('mouseleave', () => { isDragging=false; canvas.style.cursor='crosshair'; tooltip.style.display='none'; });
+
+    setupBtn.addEventListener('click', () => { drawPattern(); buildTable(); });
+
+    function drawPattern() {
+      const λ=parseFloat(λInput.value);
+      const D=parseFloat(DInput.value);
+      const ps=parseFloat(matInput.value);
+      const N=parseInt(ordersInput.value, 10);
+      const rings=[];
+      for (let n=1; n <= N; n++) rings.push({ n, r: (n*λ*D)/ps });
+      const maxR=rings[rings.length-1].r;
+      const basePPM=(canvas.width/2)/(maxR*1.1);
+      const ppm=basePPM*scale;
+      const cx=canvas.width/2+offsetX;
+      const cy=canvas.height/2+offsetY;
+      currentPPM=ppm; 
+      currentCX=cx; 
+      currentCY=cy;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const gridPx=50;
+      const gridColor=getComputedStyle(document.documentElement).getPropertyValue('--grid').trim();
+      ctx.save(); ctx.strokeStyle=gridColor;
+      for (let x=cx % gridPx; x < canvas.width; x += gridPx) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+      for (let y=cy % gridPx; y < canvas.height; y += gridPx) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+      ctx.restore();
+      ctx.save(); ctx.strokeStyle='#000'; ctx.fillStyle='#000';
+      ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy); ctx.moveTo(cx, 0); ctx.lineTo(cx, canvas.height); ctx.stroke(); ctx.font='12px Arial';
+      ctx.textAlign='center'; ctx.textBaseline='top';
+      for (let x=cx % gridPx; x < canvas.width; x += gridPx) { const m=((x-cx)/ppm).toFixed(3); ctx.beginPath(); ctx.moveTo(x, cy-5); ctx.lineTo(x, cy+5); ctx.stroke(); if (Math.abs(x-cx) > 1) ctx.fillText(m, x, cy+8); }
+      ctx.textAlign='right'; ctx.textBaseline='middle';
+      for (let y=cy % gridPx; y < canvas.height; y += gridPx) { const m=((cy-y)/ppm).toFixed(3); ctx.beginPath(); ctx.moveTo(cx-5, y); ctx.lineTo(cx+5, y); ctx.stroke(); if (Math.abs(y-cy) > 1) ctx.fillText(m, cx-8, y); }
+      ctx.textAlign='center'; ctx.fillText('X (m)', canvas.width/2, cy+30);
+      ctx.save(); ctx.translate(cx+30, canvas.height/2); ctx.rotate(-Math.PI/2); ctx.fillText('Y (m)', 0, 0); ctx.restore();
+      ctx.restore();
+      rings.forEach(({ n, r }) => { ctx.strokeStyle=`hsl(${(n/N)*360},70%,50%)`; ctx.beginPath(); ctx.arc(cx, cy, r*ppm, 0, 2*Math.PI); ctx.stroke(); });
+    }
+    function buildTable() {
+      const N=parseInt(ordersInput.value, 10);
+      let html='<table><thead><tr><th>n</th><th>Measured rₙ (m)</th><th>xₙ=n/rₙ (1/m)</th></tr></thead><tbody>';
+      for (let n=1; n <= N; n++) html += `<tr><td>${n}</td><td><input type="number" class="radius-input" step="any" data-order="${n}" placeholder="e.g. 0.015"/></td><td class="calc-cell" data-order="${n}">—</td></tr>`;
+      html += '</tbody></table>';
+      inputsTableDiv.innerHTML=html; meanDisplay.textContent=''; sizeDisplay.textContent='';
+      document.querySelectorAll('.radius-input').forEach(inp => inp.addEventListener('input', updateCalculations));
+    }
+    function updateCalculations() {
+      const xs=[];
+      document.querySelectorAll('.radius-input').forEach(inp => { const n=+inp.dataset.order; 
+      const r=parseFloat(inp.value); 
+      const cell=document.querySelector(`.calc-cell[data-order=\"${n}\"]`);
+      if (!isNaN(r) && r > 0) 
+      { 
+        const x=n/r; 
+        cell.textContent=x.toExponential(3); 
+        xs.push(x); 
+      } 
+      else cell.textContent='—'; });
+      if (xs.length) 
+      { 
+        const mean=xs.reduce((a, b) => a+b, 0)/xs.length; 
+        lastMean=mean; 
+        meanDisplay.innerHTML=`Mean x=<strong>${mean.toExponential(3)}</strong> 1/m`; 
+        const λ=parseFloat(λInput.value); 
+        const D=parseFloat(DInput.value); 
+        const d=λ*D*mean; 
+        sizeDisplay.innerHTML=`Estimated particle size d=λ·D·mean x<br>λ (${λ.toExponential(3)} m) × D (${D.toExponential(3)} m) × mean x (${mean.toExponential(3)} 1/m)=<strong>${d.toExponential(3)} m</strong>`; 
+      } 
+      else 
+      { 
+        lastMean=0; 
+        meanDisplay.textContent=''; 
+        sizeDisplay.textContent=''; 
+      } 
+    }
+    screenshotBtn.addEventListener('click', () => { const λ=parseFloat(λInput.value); 
+    const D=parseFloat(DInput.value); 
+    const materialName=matInput.options[matInput.selectedIndex].text; 
+    const N=parseInt(ordersInput.value, 10); 
+    const mean=lastMean; 
+    const estimated=λ*D*mean; 
+    const padding=20; 
+    const line=24; 
+    const block=line*6; 
+    const sw=canvas.width; 
+    const sh=canvas.height+block+padding; 
+    const off=document.createElement('canvas'); 
+    off.width=sw; 
+    off.height=sh; 
+    const octx=off.getContext('2d'); 
+    octx.fillStyle='#fff'; 
+    octx.fillRect(0, 0, sw, sh); 
+    
+    octx.drawImage(canvas, 0, 0); 
+    octx.fillStyle='#000'; 
+    octx.font='14px Arial'; 
+    octx.textAlign='center'; 
+    octx.textBaseline='top'; 
+    let y=canvas.height+padding/2; 
+    octx.fillText(`Wavelength: ${λ.toExponential(3)} m`, sw/2, y); 
+    y += line; 
+    octx.fillText(`Distance: ${D.toExponential(3)} m`, sw/2, y); 
+    y += line; 
+    octx.fillText(`Material: ${materialName}`, sw/2, y); 
+    y += line; 
+    octx.fillText(`Max Order: ${N}`, sw/2, y); 
+    y += line; 
+    octx.fillText(`Mean x: ${mean.toExponential(3)} 1/m`, sw/2, y); 
+    y += line; octx.fillText(`Estimated size: ${estimated.toExponential(3)} m`, sw/2, y); 
+    const link=document.createElement('a'); 
+    link.download='diffraction_screenshot.png'; 
+    link.href=off.toDataURL('image/png'); link.click(); });
+    drawPattern(); buildTable();
+  </script>
+</body>
+</html>
